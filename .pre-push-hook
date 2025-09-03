@@ -1,0 +1,41 @@
+#!/bin/bash
+
+set -euo pipefail  # Exit on error, undefined vars, and pipeline failures
+
+ORIG_HEAD=$(git rev-parse HEAD)
+ORIGINAL_MSG=$(git log -1 --pretty=format:%B HEAD)
+
+TMP_DIR="/tmp/pre-push-restore-$(uuidgen)"
+mkdir -p "$TMP_DIR"
+
+CURRENT_DIR="$PWD"
+
+git ls-files -z -- ':!*__pycache__*' ':!*.pyc' | xargs -0 sh -c '
+  TMP_DIR="$0"
+  shift
+  for file; do
+    # Create the full directory path first
+    mkdir -p "$TMP_DIR/$(dirname "$file")"
+    # Copy the file
+    cp "$file" "$TMP_DIR/$file"
+  done
+' "$TMP_DIR"
+
+pre-commit run --all-files || true
+
+git add --all
+
+if ! git diff-index --quiet HEAD --; then
+  git commit --amend -m "$ORIGINAL_MSG" --no-verify
+else
+  echo no need to amend
+fi
+
+# new commit stays only in the local copy, old commit is pushed to remote
+
+# if [ -d "$TMP_DIR" ]; then
+#   rsync -aq "$TMP_DIR/" "./"
+#   rm -rf "$TMP_DIR"
+# else
+#   exit 1
+# fi
